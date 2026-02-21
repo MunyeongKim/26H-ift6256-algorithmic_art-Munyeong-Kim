@@ -6,6 +6,9 @@ Digital code, interactive format
 
 *Summary* People talk; their speech becomes UTF-8 bytes, and those bytes become falling Tetris blocks they play together in real time.
 
+## Thumbnail
+![Gameplay screenshots (2x2)](thumbnail.png)
+
 ## Theme / question
 There is not really a fixed theme, and I just kind of wanted to make a work through transcription. At first I made it because I thought it would be fun if speech generated blocks that fall, but the falling feeling started to feel like actually playing Tetris. So while I was at it, I thought: would it be funny if the audience (like, the students in this class) played Tetris while I was presenting? So I made it that way. Originally it was for one player, but I thought it would be more fun if two people cooperated.
 
