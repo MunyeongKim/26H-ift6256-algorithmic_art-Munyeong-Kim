@@ -1,0 +1,8 @@
+{
+  "name": "hw2_2-whisper-stream",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "bash ./scripts/dev.sh"
+  }
+}
