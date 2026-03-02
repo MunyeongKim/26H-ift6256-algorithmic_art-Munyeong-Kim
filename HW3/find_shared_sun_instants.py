@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from utils.open_meteo_sun import fetch_open_meteo_sun_times
+from utils.met_sun import fetch_met_sun_times
 
 UTC = timezone.utc
 
@@ -19,8 +19,11 @@ UTC = timezone.utc
 def _parse_utc_iso_minute(value: str | None) -> datetime | None:
     if not value:
         return None
-    # Open-Meteo returns YYYY-MM-DDTHH:MM for daily sunrise/sunset.
-    return datetime.fromisoformat(value).replace(tzinfo=UTC)
+    normalized = value.replace("Z", "+00:00")
+    parsed = datetime.fromisoformat(normalized)
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
 
 
 def _to_local_iso(value_utc: datetime, tz_name: str) -> str:
@@ -65,19 +68,19 @@ def find_shared_sun_instants(
     end_date: str,
     tolerance_minutes: int = 10,
 ) -> list[dict[str, Any]]:
-    rows_a = fetch_open_meteo_sun_times(
+    rows_a = fetch_met_sun_times(
         latitude=lat_a,
         longitude=lon_a,
         start_date=start_date,
         end_date=end_date,
-        timezone="GMT",
+        offset="+00:00",
     )
-    rows_b = fetch_open_meteo_sun_times(
+    rows_b = fetch_met_sun_times(
         latitude=lat_b,
         longitude=lon_b,
         start_date=start_date,
         end_date=end_date,
-        timezone="GMT",
+        offset="+00:00",
     )
 
     points_a = _event_points(rows_a, event_a, name_a)
@@ -159,7 +162,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
             "Find near-simultaneous sunrise/sunset instants between two locations "
-            "using Open-Meteo free API data."
+            "using MET Norway Sunrise API data."
         )
     )
     parser.add_argument("--name-a", required=True, help="Label for location A")
