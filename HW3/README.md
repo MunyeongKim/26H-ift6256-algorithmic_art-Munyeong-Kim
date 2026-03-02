@@ -86,3 +86,21 @@ python HW3/fetch_streetview_pair.py \
 ```
 
 - 결과물은 `streetview_outputs` 폴더에 실제 사진(`*.jpg`)과 메타데이터(`*_metadata.json`)로 저장됩니다.
+
+## One-Shot: Match Date + Sun Direction + Street View
+
+```bash
+python HW3/find_and_fetch_sun_streetview.py \
+  --name-a PohangSunrise \
+  --maps-url-a "YOUR_GOOGLE_MAPS_URL_A" \
+  --event-a sunrise --tz-a Asia/Seoul \
+  --name-b MontrealSunset \
+  --maps-url-b "YOUR_GOOGLE_MAPS_URL_B" \
+  --event-b sunset --tz-b America/Toronto \
+  --start 2026-01-01 --end 2026-12-31 --tol-min 10 \
+  --match-index 1 \
+  --radius 50 --source default \
+  --outdir HW3/streetview_outputs/pohang_montreal
+```
+
+- 위 스크립트는 `Google Maps URL -> 좌표 추출 -> 매칭 날짜 탐색 -> 해당 날짜 일출/일몰 방위각 heading 계산 -> Street View 저장`을 한 번에 수행합니다.

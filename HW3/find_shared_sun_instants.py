@@ -26,6 +26,12 @@ def _parse_utc_iso_minute(value: str | None) -> datetime | None:
     return parsed.astimezone(UTC)
 
 
+def _parse_float(value: str | None) -> float | None:
+    if value is None or value == "":
+        return None
+    return float(value)
+
+
 def _to_local_iso(value_utc: datetime, tz_name: str) -> str:
     return value_utc.astimezone(ZoneInfo(tz_name)).isoformat(timespec="minutes")
 
@@ -46,6 +52,7 @@ def _event_points(
                 "event": event_key,
                 "source_date": row.get("date", ""),
                 "ts_utc": ts,
+                "azimuth_deg": _parse_float(row.get(f"{event_key}_azimuth")),
             }
         )
     out.sort(key=lambda x: x["ts_utc"])
@@ -113,11 +120,13 @@ def find_shared_sun_instants(
                     "a_source_date": a["source_date"],
                     "a_utc": a["ts_utc"].isoformat(timespec="minutes").replace("+00:00", "Z"),
                     "a_local": _to_local_iso(a["ts_utc"], tz_a),
+                    "a_azimuth_deg": a["azimuth_deg"],
                     "b_name": b["name"],
                     "b_event": b["event"],
                     "b_source_date": b["source_date"],
                     "b_utc": b["ts_utc"].isoformat(timespec="minutes").replace("+00:00", "Z"),
                     "b_local": _to_local_iso(b["ts_utc"], tz_b),
+                    "b_azimuth_deg": b["azimuth_deg"],
                 }
             )
 
@@ -145,11 +154,13 @@ def save_matches_csv(matches: list[dict[str, Any]], output_path: str | Path) -> 
         "a_source_date",
         "a_utc",
         "a_local",
+        "a_azimuth_deg",
         "b_name",
         "b_event",
         "b_source_date",
         "b_utc",
         "b_local",
+        "b_azimuth_deg",
     ]
     with path.open("w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=fields)
@@ -239,8 +250,8 @@ def main() -> None:
         print(
             f"{i+1:02d}. year={m['sort_year']}, diff={m['diff_min']} min, "
             f"mid={m['shared_midpoint_utc']}, "
-            f"{m['a_name']}({m['a_event']})={m['a_utc']}, "
-            f"{m['b_name']}({m['b_event']})={m['b_utc']}"
+            f"{m['a_name']}({m['a_event']})={m['a_utc']} az={m['a_azimuth_deg']}, "
+            f"{m['b_name']}({m['b_event']})={m['b_utc']} az={m['b_azimuth_deg']}"
         )
 
 
