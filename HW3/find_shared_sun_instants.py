@@ -26,6 +26,10 @@ def _parse_utc_iso_minute(value: str | None) -> datetime | None:
     return parsed.astimezone(UTC)
 
 
+def _utc_now_minute() -> datetime:
+    return datetime.now(UTC).replace(second=0, microsecond=0)
+
+
 def _parse_float(value: str | None) -> float | None:
     if value is None or value == "":
         return None
@@ -74,6 +78,8 @@ def find_shared_sun_instants(
     start_date: str,
     end_date: str,
     tolerance_minutes: int = 10,
+    reference_utc: datetime | None = None,
+    allow_future_matches: bool = False,
 ) -> list[dict[str, Any]]:
     rows_a = fetch_met_sun_times(
         latitude=lat_a,
@@ -97,6 +103,8 @@ def find_shared_sun_instants(
     tol = timedelta(minutes=tolerance_minutes)
     matches: list[dict[str, Any]] = []
 
+    cutoff_utc = reference_utc or _utc_now_minute()
+
     for a in points_a:
         left = bisect_left(b_ts, a["ts_utc"] - tol)
         right = bisect_right(b_ts, a["ts_utc"] + tol)
@@ -106,12 +114,18 @@ def find_shared_sun_instants(
             diff_min_rounded = int(round(diff_min))
             recent_ts = a["ts_utc"] if a["ts_utc"] >= b["ts_utc"] else b["ts_utc"]
             midpoint_ts = a["ts_utc"] + (b["ts_utc"] - a["ts_utc"]) / 2
+            is_future = midpoint_ts > cutoff_utc
+
+            if is_future and not allow_future_matches:
+                continue
 
             matches.append(
                 {
+                    "sort_is_future": 1 if is_future else 0,
                     "sort_year": recent_ts.year,
                     "sort_recent_epoch": recent_ts.timestamp(),
                     "sort_diff_min": diff_min_rounded,
+                    "sort_midpoint_epoch": midpoint_ts.timestamp(),
                     "shared_midpoint_utc": midpoint_ts.isoformat(timespec="minutes").replace("+00:00", "Z"),
                     "recent_utc": recent_ts.isoformat(timespec="minutes").replace("+00:00", "Z"),
                     "diff_min": diff_min_rounded,
@@ -130,10 +144,14 @@ def find_shared_sun_instants(
                 }
             )
 
-    # Sort rule requested:
-    # 1) latest year first, 2) smaller diff first, 3) if diff ties, more recent instant first
+    # Sort rule:
+    # 1) past matches before future matches (future usually filtered out),
+    # 2) latest year first,
+    # 3) smaller diff first,
+    # 4) if diff ties, more recent instant first.
     matches.sort(
         key=lambda x: (
+            x["sort_is_future"],
             -x["sort_year"],
             x["sort_diff_min"],
             -x["sort_recent_epoch"],
@@ -207,6 +225,16 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Match tolerance in minutes (default: 10)",
     )
     parser.add_argument(
+        "--reference-utc",
+        default=None,
+        help="Reference UTC cutoff for past-only filtering (ISO 8601, default: current UTC minute)",
+    )
+    parser.add_argument(
+        "--allow-future-matches",
+        action="store_true",
+        help="Allow future shared instants instead of filtering them out.",
+    )
+    parser.add_argument(
         "--limit",
         type=int,
         default=20,
@@ -236,6 +264,8 @@ def main() -> None:
         start_date=args.start,
         end_date=args.end,
         tolerance_minutes=args.tol_min,
+        reference_utc=_parse_utc_iso_minute(args.reference_utc) if args.reference_utc else None,
+        allow_future_matches=args.allow_future_matches,
     )
 
     if args.output:

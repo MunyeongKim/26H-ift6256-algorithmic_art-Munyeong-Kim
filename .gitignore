@@ -1,1 +1,7 @@
 .DS_Store
+.env
+.env.*
+!.env.example
+HW3/.env
+HW3/.env.*
+!HW3/.env.example

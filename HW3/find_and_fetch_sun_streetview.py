@@ -7,14 +7,19 @@ import argparse
 import json
 import os
 import re
-from datetime import date
+import sys
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 from fetch_streetview_pair import save_pair
 from find_shared_sun_instants import find_shared_sun_instants, save_matches_csv
 
+sys.path.append(str(Path(__file__).resolve().parent / "utils"))
+from reverse_geocode import reverse_geocode, resolve_language_choice
+
 _AT_COORD_RE = re.compile(r"@(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)")
 _PLACE_COORD_RE = re.compile(r"!3d(-?\d+(?:\.\d+)?)!4d(-?\d+(?:\.\d+)?)")
+UTC = timezone.utc
 
 
 def _load_env_file(paths: list[Path]) -> None:
@@ -54,6 +59,16 @@ def _resolve_coords(
     raise ValueError("Provide either (--lat, --lon) pair or --maps-url.")
 
 
+def _parse_utc_iso_minute(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    normalized = value.replace("Z", "+00:00")
+    parsed = datetime.fromisoformat(normalized)
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
+
+
 def _build_parser() -> argparse.ArgumentParser:
     current_year = date.today().year
     parser = argparse.ArgumentParser(
@@ -77,11 +92,43 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--event-b", choices=["sunrise", "sunset"], default="sunset")
     parser.add_argument("--tz-a", default="UTC", help="IANA timezone for location A local display")
     parser.add_argument("--tz-b", default="UTC", help="IANA timezone for location B local display")
+    parser.add_argument(
+        "--address-lang-a",
+        choices=["none", "en", "fr", "other"],
+        default="none",
+        help="Reverse-geocoded address language option for location A",
+    )
+    parser.add_argument(
+        "--address-lang-code-a",
+        default=None,
+        help="Custom language code when --address-lang-a=other",
+    )
+    parser.add_argument(
+        "--address-lang-b",
+        choices=["none", "en", "fr", "other"],
+        default="none",
+        help="Reverse-geocoded address language option for location B",
+    )
+    parser.add_argument(
+        "--address-lang-code-b",
+        default=None,
+        help="Custom language code when --address-lang-b=other",
+    )
 
     parser.add_argument("--start", default=f"{current_year}-01-01", help="Start date (YYYY-MM-DD)")
     parser.add_argument("--end", default=f"{current_year}-12-31", help="End date (YYYY-MM-DD)")
     parser.add_argument("--tol-min", type=int, default=10, help="Match tolerance in minutes")
     parser.add_argument("--match-index", type=int, default=1, help="1-based index in sorted matches")
+    parser.add_argument(
+        "--reference-utc",
+        default=None,
+        help="Reference UTC cutoff for past-only filtering (ISO 8601, default: current UTC minute)",
+    )
+    parser.add_argument(
+        "--allow-future-matches",
+        action="store_true",
+        help="Allow future shared instants instead of filtering them out.",
+    )
     parser.add_argument(
         "--matches-csv",
         default=None,
@@ -95,7 +142,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--pitch-a", type=float, default=0.0, help="Camera pitch for location A")
     parser.add_argument("--pitch-b", type=float, default=0.0, help="Camera pitch for location B")
-    parser.add_argument("--size", default="1024x768", help="Image size")
+    parser.add_argument("--size", default="640x640", help="Image size (default: 640x640)")
     parser.add_argument("--fov", type=int, default=90, help="Field of view (10~120)")
     parser.add_argument("--radius", type=int, default=50, help="Search radius in meters")
     parser.add_argument(
@@ -132,6 +179,8 @@ def main() -> None:
         start_date=args.start,
         end_date=args.end,
         tolerance_minutes=args.tol_min,
+        reference_utc=_parse_utc_iso_minute(args.reference_utc) if args.reference_utc else None,
+        allow_future_matches=args.allow_future_matches,
     )
     if args.matches_csv:
         save_matches_csv(matches, args.matches_csv)
@@ -180,6 +229,25 @@ def main() -> None:
         outdir=outdir,
     )
 
+    address_language_a = resolve_language_choice(args.address_lang_a, args.address_lang_code_a)
+    address_language_b = resolve_language_choice(args.address_lang_b, args.address_lang_code_b)
+    reverse_geocode_a = None
+    reverse_geocode_b = None
+    if address_language_a:
+        reverse_geocode_a = reverse_geocode(
+            lat=lat_a,
+            lon=lon_a,
+            api_key=api_key,
+            language=address_language_a,
+        )
+    if address_language_b:
+        reverse_geocode_b = reverse_geocode(
+            lat=lat_b,
+            lon=lon_b,
+            api_key=api_key,
+            language=address_language_b,
+        )
+
     summary_path = Path(args.summary_json) if args.summary_json else outdir / "sun_aligned_summary.json"
     summary_payload = {
         "selection": {
@@ -189,6 +257,12 @@ def main() -> None:
             "start": args.start,
             "end": args.end,
             "tolerance_minutes": args.tol_min,
+            "reference_utc": (
+                _parse_utc_iso_minute(args.reference_utc).isoformat(timespec="minutes").replace("+00:00", "Z")
+                if args.reference_utc
+                else datetime.now(UTC).replace(second=0, microsecond=0).isoformat(timespec="minutes").replace("+00:00", "Z")
+            ),
+            "allow_future_matches": args.allow_future_matches,
         },
         "location_a": {
             "name": args.name_a,
@@ -199,6 +273,8 @@ def main() -> None:
             "heading_deg": heading_a,
             "pitch_deg": args.pitch_a,
             "image_path": str(img_a),
+            "address_language": address_language_a,
+            "reverse_geocode": reverse_geocode_a,
         },
         "location_b": {
             "name": args.name_b,
@@ -209,6 +285,8 @@ def main() -> None:
             "heading_deg": heading_b,
             "pitch_deg": args.pitch_b,
             "image_path": str(img_b),
+            "address_language": address_language_b,
+            "reverse_geocode": reverse_geocode_b,
         },
         "selected_match": selected,
     }
@@ -218,6 +296,10 @@ def main() -> None:
     print(f"[DONE] selected match: {selected['shared_midpoint_utc']} (diff={selected['diff_min']} min)")
     print(f"[DONE] heading A ({args.name_a}): {heading_a:.2f} deg")
     print(f"[DONE] heading B ({args.name_b}): {heading_b:.2f} deg")
+    if reverse_geocode_a:
+        print(f"[DONE] address A ({args.name_a}): {reverse_geocode_a['district_label']}")
+    if reverse_geocode_b:
+        print(f"[DONE] address B ({args.name_b}): {reverse_geocode_b['district_label']}")
     print(f"[DONE] summary json: {summary_path}")
 
 
