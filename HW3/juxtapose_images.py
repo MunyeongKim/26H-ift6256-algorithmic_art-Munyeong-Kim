@@ -123,16 +123,32 @@ def _frame_image(
     return framed, (x, y, img.width, img.height)
 
 
-def main() -> None:
-    args = _build_parser().parse_args()
-    left_path = Path(args.left)
-    right_path = Path(args.right)
-    output_path = Path(args.output)
+def compose_images(
+    *,
+    left_path: str | Path,
+    right_path: str | Path,
+    output_path: str | Path,
+    gap: int = 0,
+    bg: str = "white",
+    scale: float = 1.0,
+    left_note: str | None = None,
+    right_note: str | None = None,
+    note_font: str = DEFAULT_FONT,
+    note_size: int = 18,
+    note_pad: int = 12,
+    canvas_size: str | None = None,
+    frame_ratio: float = 1.0,
+    image_border: int = 0,
+    outer_pad: int = 0,
+) -> Path:
+    left_path = Path(left_path)
+    right_path = Path(right_path)
+    output_path = Path(output_path)
 
     left = Image.open(left_path).convert("RGB")
     right = Image.open(right_path).convert("RGB")
 
-    scale = max(0.05, float(args.scale))
+    scale = max(0.05, float(scale))
     if scale != 1.0:
         left = left.resize(
             (max(1, round(left.width * scale)), max(1, round(left.height * scale))),
@@ -151,61 +167,61 @@ def main() -> None:
 
     left, left_inner = _frame_image(
         left,
-        frame_ratio=float(args.frame_ratio),
-        border_px=max(0, int(args.image_border)),
-        frame_bg=args.bg,
+        frame_ratio=float(frame_ratio),
+        border_px=max(0, int(image_border)),
+        frame_bg=bg,
     )
     right, right_inner = _frame_image(
         right,
-        frame_ratio=float(args.frame_ratio),
-        border_px=max(0, int(args.image_border)),
-        frame_bg=args.bg,
+        frame_ratio=float(frame_ratio),
+        border_px=max(0, int(image_border)),
+        frame_bg=bg,
     )
     left = _annotate_bottom_right(
         left,
-        args.left_note,
-        font_path=args.note_font,
-        font_size=args.note_size,
-        pad=max(4, args.note_pad),
+        left_note,
+        font_path=note_font,
+        font_size=note_size,
+        pad=max(4, note_pad),
         anchor_right=left_inner[0] + left_inner[2],
         anchor_bottom=left_inner[1] + left_inner[3],
     )
     right = _annotate_bottom_right(
         right,
-        args.right_note,
-        font_path=args.note_font,
-        font_size=args.note_size,
-        pad=max(4, args.note_pad),
+        right_note,
+        font_path=note_font,
+        font_size=note_size,
+        pad=max(4, note_pad),
         anchor_right=right_inner[0] + right_inner[2],
         anchor_bottom=right_inner[1] + right_inner[3],
     )
 
-    gap = max(0, args.gap)
+    gap = max(0, gap)
     target_h = max(left.height, right.height)
     canvas_w = left.width + gap + right.width
-    strip = Image.new("RGB", (canvas_w, target_h), color=args.bg)
+    strip = Image.new("RGB", (canvas_w, target_h), color=bg)
     strip.paste(left, (0, 0))
     strip.paste(right, (left.width + gap, 0))
 
-    if args.canvas_size:
-        final_w, final_h = _parse_size(args.canvas_size)
+    if canvas_size:
+        final_w, final_h = _parse_size(canvas_size)
         if final_w < strip.width or final_h < strip.height:
             raise ValueError(
                 f"canvas-size {final_w}x{final_h} is smaller than composed content {strip.width}x{strip.height}"
             )
-        canvas = Image.new("RGB", (final_w, final_h), color=args.bg)
+        canvas = Image.new("RGB", (final_w, final_h), color=bg)
         x = (final_w - strip.width) // 2
         y = (final_h - strip.height) // 2
         canvas.paste(strip, (x, y))
     else:
         canvas = strip
 
-    outer_pad = max(0, int(args.outer_pad))
+    outer_pad = max(0, int(outer_pad))
     if outer_pad > 0:
         padded = Image.new(
             "RGB",
             (canvas.width + outer_pad * 2, canvas.height + outer_pad * 2),
-            color=args.bg,
+            color=bg,
         )
         padded.paste(canvas, (outer_pad, outer_pad))
         canvas = padded
@@ -213,6 +229,28 @@ def main() -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     canvas.save(output_path)
     print(f"[OK] saved: {output_path} ({canvas.width}x{canvas.height})")
+    return output_path
+
+
+def main() -> None:
+    args = _build_parser().parse_args()
+    compose_images(
+        left_path=args.left,
+        right_path=args.right,
+        output_path=args.output,
+        gap=args.gap,
+        bg=args.bg,
+        scale=args.scale,
+        left_note=args.left_note,
+        right_note=args.right_note,
+        note_font=args.note_font,
+        note_size=args.note_size,
+        note_pad=args.note_pad,
+        canvas_size=args.canvas_size,
+        frame_ratio=args.frame_ratio,
+        image_border=args.image_border,
+        outer_pad=args.outer_pad,
+    )
 
 
 if __name__ == "__main__":

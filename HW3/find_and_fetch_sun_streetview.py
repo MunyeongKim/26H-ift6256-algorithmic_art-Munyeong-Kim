@@ -8,11 +8,11 @@ import json
 import os
 import re
 import sys
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fetch_streetview_pair import save_pair
-from find_shared_sun_instants import find_shared_sun_instants, save_matches_csv
+from find_shared_sun_instants import default_search_window, find_shared_sun_instants, save_matches_csv
 
 sys.path.append(str(Path(__file__).resolve().parent / "utils"))
 from reverse_geocode import reverse_geocode, resolve_language_choice
@@ -70,7 +70,7 @@ def _parse_utc_iso_minute(value: str | None) -> datetime | None:
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    current_year = date.today().year
+    default_start, default_end = default_search_window()
     parser = argparse.ArgumentParser(
         description=(
             "Find near-simultaneous sun events and fetch Street View images pointed "
@@ -95,7 +95,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--address-lang-a",
         choices=["none", "en", "fr", "other"],
-        default="none",
+        default="en",
         help="Reverse-geocoded address language option for location A",
     )
     parser.add_argument(
@@ -106,7 +106,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--address-lang-b",
         choices=["none", "en", "fr", "other"],
-        default="none",
+        default="en",
         help="Reverse-geocoded address language option for location B",
     )
     parser.add_argument(
@@ -115,8 +115,8 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Custom language code when --address-lang-b=other",
     )
 
-    parser.add_argument("--start", default=f"{current_year}-01-01", help="Start date (YYYY-MM-DD)")
-    parser.add_argument("--end", default=f"{current_year}-12-31", help="End date (YYYY-MM-DD)")
+    parser.add_argument("--start", default=default_start, help="Start date (YYYY-MM-DD)")
+    parser.add_argument("--end", default=default_end, help="End date (YYYY-MM-DD)")
     parser.add_argument("--tol-min", type=int, default=10, help="Match tolerance in minutes")
     parser.add_argument("--match-index", type=int, default=1, help="1-based index in sorted matches")
     parser.add_argument(

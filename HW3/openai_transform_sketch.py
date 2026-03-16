@@ -286,6 +286,109 @@ def _prompt_for_image(
     return prompt_template.replace("{sun_event}", event_ko)
 
 
+def transform_images(
+    *,
+    input_paths: list[Path],
+    outdir: Path,
+    suffix: str = "_openai_sketch",
+    fixed_prompt: str | None = None,
+    prompt_template: str = DEFAULT_PROMPT_TEMPLATE,
+    sun_events: list[str] | None = None,
+    model: str = DEFAULT_MODEL,
+    size: str = "1024x1024",
+    quality: str = "high",
+    input_fidelity: str = "high",
+    output_format: str = "png",
+    output_compression: int = 90,
+    timeout: float = 240.0,
+    api_key: str | None = None,
+    dry_run: bool = False,
+) -> list[dict[str, Any]]:
+    outdir.mkdir(parents=True, exist_ok=True)
+    resolved_events = _resolve_sun_events(input_paths, sun_events)
+    results: list[dict[str, Any]] = []
+
+    for input_path, sun_event in zip(input_paths, resolved_events):
+        if not input_path.exists():
+            raise FileNotFoundError(f"Input file not found: {input_path}")
+        step1_prompt = _prompt_for_image(
+            fixed_prompt=None,
+            prompt_template=DEFAULT_STEP1_PROMPT_TEMPLATE,
+            sun_event=sun_event,
+        )
+        step2_prompt = _prompt_for_image(
+            fixed_prompt=fixed_prompt,
+            prompt_template=prompt_template,
+            sun_event=sun_event,
+        )
+
+        ext = ".png" if output_format == "png" else f".{output_format}"
+        output_path = outdir / f"{input_path.stem}{suffix}{ext}"
+        step1_path = outdir / f"{input_path.stem}{suffix}_step1{ext}"
+        meta_path = outdir / f"{input_path.stem}{suffix}_meta.json"
+
+        if dry_run:
+            shutil.copyfile(input_path, step1_path)
+            shutil.copyfile(step1_path, output_path)
+            payload_step1: dict[str, Any] = {"dry_run": True}
+            payload_step2: dict[str, Any] = {"dry_run": True}
+        else:
+            step1_bytes, payload_step1 = edit_image_openai(
+                image_path=input_path,
+                api_key=api_key or "",
+                prompt=step1_prompt,
+                model=model,
+                size=size,
+                quality=quality,
+                input_fidelity=input_fidelity,
+                output_format=output_format,
+                output_compression=output_compression,
+                timeout=timeout,
+            )
+            step1_path.write_bytes(step1_bytes)
+
+            final_bytes, payload_step2 = edit_image_openai(
+                image_path=step1_path,
+                api_key=api_key or "",
+                prompt=step2_prompt,
+                model=model,
+                size=size,
+                quality=quality,
+                input_fidelity=input_fidelity,
+                output_format=output_format,
+                output_compression=output_compression,
+                timeout=timeout,
+            )
+            output_path.write_bytes(final_bytes)
+
+        meta = {
+            "input_path": str(input_path),
+            "step1_output_path": str(step1_path),
+            "output_path": str(output_path),
+            "metadata_path": str(meta_path),
+            "sun_event": sun_event,
+            "step1_prompt_template": DEFAULT_STEP1_PROMPT_TEMPLATE,
+            "step1_prompt": step1_prompt,
+            "step2_prompt": step2_prompt,
+            "step2_prompt_template": prompt_template,
+            "model": model,
+            "size": size,
+            "quality": quality,
+            "input_fidelity": input_fidelity,
+            "output_format": output_format,
+            "dry_run": bool(dry_run),
+            "openai_response_step1": _summarize_openai_response(payload_step1),
+            "openai_response_step2": _summarize_openai_response(payload_step2),
+        }
+        meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+        print(f"[OK] step1: {step1_path}")
+        print(f"[OK] transformed: {output_path}")
+        print(f"[OK] metadata: {meta_path}")
+        results.append(meta)
+
+    return results
+
+
 def main() -> None:
     args = _build_parser().parse_args()
 
@@ -296,87 +399,24 @@ def main() -> None:
             "Missing OpenAI key. Set OPENAI_API_KEY in HW3/.env or pass --api-key."
         )
 
-    outdir = Path(args.outdir)
-    outdir.mkdir(parents=True, exist_ok=True)
-
     input_paths = [Path(raw_input) for raw_input in args.input]
-    sun_events = _resolve_sun_events(input_paths, args.sun_events)
-
-    for input_path, sun_event in zip(input_paths, sun_events):
-        if not input_path.exists():
-            raise FileNotFoundError(f"Input file not found: {input_path}")
-        step1_prompt = _prompt_for_image(
-            fixed_prompt=None,
-            prompt_template=DEFAULT_STEP1_PROMPT_TEMPLATE,
-            sun_event=sun_event,
-        )
-        step2_prompt = _prompt_for_image(
-            fixed_prompt=args.prompt,
-            prompt_template=args.prompt_template,
-            sun_event=sun_event,
-        )
-
-        ext = ".png" if args.output_format == "png" else f".{args.output_format}"
-        output_path = outdir / f"{input_path.stem}{args.suffix}{ext}"
-        step1_path = outdir / f"{input_path.stem}{args.suffix}_step1{ext}"
-        meta_path = outdir / f"{input_path.stem}{args.suffix}_meta.json"
-
-        if args.dry_run:
-            shutil.copyfile(input_path, step1_path)
-            shutil.copyfile(step1_path, output_path)
-            payload_step1: dict[str, Any] = {"dry_run": True}
-            payload_step2: dict[str, Any] = {"dry_run": True}
-        else:
-            step1_bytes, payload_step1 = edit_image_openai(
-                image_path=input_path,
-                api_key=api_key or "",
-                prompt=step1_prompt,
-                model=args.model,
-                size=args.size,
-                quality=args.quality,
-                input_fidelity=args.input_fidelity,
-                output_format=args.output_format,
-                output_compression=args.output_compression,
-                timeout=args.timeout,
-            )
-            step1_path.write_bytes(step1_bytes)
-
-            final_bytes, payload_step2 = edit_image_openai(
-                image_path=step1_path,
-                api_key=api_key or "",
-                prompt=step2_prompt,
-                model=args.model,
-                size=args.size,
-                quality=args.quality,
-                input_fidelity=args.input_fidelity,
-                output_format=args.output_format,
-                output_compression=args.output_compression,
-                timeout=args.timeout,
-            )
-            output_path.write_bytes(final_bytes)
-
-        meta = {
-            "input_path": str(input_path),
-            "step1_output_path": str(step1_path),
-            "output_path": str(output_path),
-            "sun_event": sun_event,
-            "step1_prompt_template": DEFAULT_STEP1_PROMPT_TEMPLATE,
-            "step1_prompt": step1_prompt,
-            "step2_prompt": step2_prompt,
-            "step2_prompt_template": args.prompt_template,
-            "model": args.model,
-            "size": args.size,
-            "quality": args.quality,
-            "input_fidelity": args.input_fidelity,
-            "output_format": args.output_format,
-            "dry_run": bool(args.dry_run),
-            "openai_response_step1": _summarize_openai_response(payload_step1),
-            "openai_response_step2": _summarize_openai_response(payload_step2),
-        }
-        meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
-        print(f"[OK] step1: {step1_path}")
-        print(f"[OK] transformed: {output_path}")
-        print(f"[OK] metadata: {meta_path}")
+    transform_images(
+        input_paths=input_paths,
+        outdir=Path(args.outdir),
+        suffix=args.suffix,
+        fixed_prompt=args.prompt,
+        prompt_template=args.prompt_template,
+        sun_events=args.sun_events,
+        model=args.model,
+        size=args.size,
+        quality=args.quality,
+        input_fidelity=args.input_fidelity,
+        output_format=args.output_format,
+        output_compression=args.output_compression,
+        timeout=args.timeout,
+        api_key=api_key,
+        dry_run=args.dry_run,
+    )
 
 
 if __name__ == "__main__":

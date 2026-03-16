@@ -6,7 +6,7 @@ from __future__ import annotations
 import argparse
 import csv
 from bisect import bisect_left, bisect_right
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -14,6 +14,11 @@ from zoneinfo import ZoneInfo
 from utils.met_sun import fetch_met_sun_times
 
 UTC = timezone.utc
+
+
+def default_search_window(today: date | None = None) -> tuple[str, str]:
+    today = today or date.today()
+    return f"{today.year - 1}-01-01", today.isoformat()
 
 
 def _parse_utc_iso_minute(value: str | None) -> datetime | None:
@@ -188,6 +193,7 @@ def save_matches_csv(matches: list[dict[str, Any]], output_path: str | Path) -> 
 
 
 def _build_parser() -> argparse.ArgumentParser:
+    default_start, default_end = default_search_window()
     parser = argparse.ArgumentParser(
         description=(
             "Find near-simultaneous sunrise/sunset instants between two locations "
@@ -216,8 +222,8 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--tz-b", default="UTC", help="IANA timezone for location B local display")
 
-    parser.add_argument("--start", required=True, help="Start date (YYYY-MM-DD)")
-    parser.add_argument("--end", required=True, help="End date (YYYY-MM-DD)")
+    parser.add_argument("--start", default=default_start, help="Start date (YYYY-MM-DD)")
+    parser.add_argument("--end", default=default_end, help="End date (YYYY-MM-DD)")
     parser.add_argument(
         "--tol-min",
         type=int,

@@ -119,36 +119,60 @@ python HW3/find_and_fetch_sun_streetview.py \
   --maps-url-b "YOUR_GOOGLE_MAPS_URL_B" \
   --event-b sunset --tz-b America/Toronto \
   --address-lang-b fr \
-  --start 2026-01-01 --end 2026-12-31 --tol-min 10 \
   --match-index 1 \
   --radius 50 --source default \
   --outdir HW3/streetview_outputs/pohang_montreal
 ```
 
 - 위 스크립트는 `Google Maps URL -> 좌표 추출 -> 매칭 날짜 탐색 -> 해당 날짜 일출/일몰 방위각 heading 계산 -> Street View 저장`을 한 번에 수행합니다.
+- 기본 탐색 기간은 `작년 1월 1일 ~ 오늘`입니다.
 - 기본 이미지 크기는 `640x640`입니다.
 - 선택적으로 Google Reverse Geocoding도 같이 호출해서 district 단위 주소 라벨을 summary JSON에 저장할 수 있습니다.
 - 주소 언어 옵션은 `--address-lang-a/--address-lang-b`에 `en`, `fr`, `other`, `none`을 줄 수 있고, `other`일 때는 `--address-lang-code-*`로 실제 언어 코드를 넘깁니다.
 - 이 기능을 쓰려면 `Street View Static API`와 별도로 `Geocoding API`도 켜져 있어야 합니다.
 
-## OpenAI Sketch Transform Only (Step 4-a)
+## Structured Run Folder: main.py
+
+```bash
+python HW3/main.py \
+  --name-a PohangSunrise \
+  --maps-url-a "YOUR_GOOGLE_MAPS_URL_A" \
+  --event-a sunrise --tz-a Asia/Seoul \
+  --address-lang-a other --address-lang-code-a ko \
+  --name-b MontrealSunset \
+  --maps-url-b "YOUR_GOOGLE_MAPS_URL_B" \
+  --event-b sunset --tz-b America/Toronto \
+  --address-lang-b fr \
+  --normalize-addresses
+```
+
+- `main.py`는 기존 스크립트의 함수들을 그대로 묶어서 `URL 파싱 -> 날짜 매칭 -> Street View 저장 -> 역지오코딩 -> 주소 정규화 -> OpenAI 변환 -> 최종 합성` 순서로 실행합니다.
+- 결과물은 `HW3/runs/<run_id>/` 아래에 단계별로 정리됩니다.
+- 폴더 구조는 `00_inputs`, `01_parsed`, `02_match`, `03_streetview`, `04_geocode`, `05_render`, `06_compose`, `manifest.json` 입니다.
+- 기본 탐색 기간은 `작년 1월 1일 ~ 오늘`이고, 필요하면 `--start`, `--end`, `--allow-future-matches`로 덮어쓸 수 있습니다.
+- OpenAI 이미지 변환을 잠시 끄려면 `--skip-transform`, 최종 합성을 끄려면 `--skip-compose`를 쓰면 됩니다.
+
+## OpenAI Sketch Transform Only (v7 Multi-Reference)
 
 ```bash
 # Fill key in HW3/.env (template: HW3/.env.example)
 # OPENAI_API_KEY=YOUR_KEY
 
-python HW3/openai_transform_sketch.py \
-  --input \
-    HW3/streetview_outputs/pohang_montreal/PohangSunrise_streetview.jpg \
-    HW3/streetview_outputs/pohang_montreal/MontrealSunset_streetview.jpg \
-  --sun-events sunrise sunset \
+python HW3/openai_transform_sketch_v7.py \
+  --style-reference-step1 HW3/style_reference_oratory.png \
+  --style-reference-step2 HW3/style_reference_pohang.png \
+  --input-first HW3/streetview_outputs/pohang_montreal/PohangSunrise_streetview.jpg \
+  --event-first sunrise \
+  --input-second HW3/streetview_outputs/pohang_montreal/MontrealSunset_streetview.jpg \
+  --event-second sunset \
   --outdir HW3/streetview_outputs/pohang_montreal/openai_sketches
 ```
 
-- 각 입력 이미지를 개별 변환해서 저장합니다.
-- 변환은 2단계로 수행됩니다: `1) 흑백 단일 펜 미니멀 라인 스케치 생성 -> 2) 그 결과 위에 중앙 해/햇빛(빨강) 추가`.
-- 기본 프롬프트는 `단일 펜 미니멀 라인 스케치`, `해는 사진 중앙`, `사진 방향은 일부러 맞춰둔 구도`를 반영하며, 색상은 `해/햇빛 요소만 빨강`으로 제한합니다.
-- Step 2에서 중앙 방향에 해가 들어갈 하늘 공간이 없으면, 해 원판은 생략하고 붉은 기/광채만 추가합니다.
-- `--sun-events`로 각 이미지를 `sunrise/sunset`로 지정할 수 있습니다.
+- v7은 멀티 레퍼런스 방식입니다.
+- Step 1/2에서 원본뿐 아니라 스타일 레퍼런스와 이전 단계 스케치를 함께 넣습니다.
+- 첫 번째 입력만 편집 대상으로 강제하고, 나머지는 스타일/조건 참조용으로만 쓰도록 프롬프트 규칙이 들어 있습니다.
+- 변환은 4단계로 수행됩니다:
+  `1) 첫 장소 베이스 -> 2) 첫 장소 해 추가 -> 3) 둘째 장소 베이스(첫 장소 스타일 참조) -> 4) 둘째 장소 해 추가`
+- `main.py`도 현재는 이 v7 경로를 사용합니다.
 - OpenAI 변환 출력 기본 크기는 `1024x1024`입니다.
 - 아직 juxtapose(나란히 합성)는 하지 않습니다.
